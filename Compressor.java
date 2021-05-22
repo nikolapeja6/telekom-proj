@@ -3,19 +3,25 @@ package nikolapeja6.Telekom;
 import java.io.*;
 import java.util.*;
 
+import javafx.util.Pair;
+
 public class Compressor {
 
+	// Bits used to transfer a single letter
+	private static int BITS_PER_CHAR = 5;
+	
 	public static void main(String[] args) {
-		 burrowsWheeler("BANANA", false);
-		 moveToFront("NNBAAA", false);
+		compress(new File("input.txt"), true, true, true);
 	}
 
 	
-	public static void compress(File sourceFile, boolean bw, boolean mtf, boolean ac){
+	private static PrintWriter out = null;
+	
+	public static double compress(File sourceFile, boolean bw, boolean mtf, boolean ac){
 		
 		// Checking for error
 		if(sourceFile == null || !sourceFile.exists() || !sourceFile.canRead())
-			return;
+			return -1;
 		
 		// Opening the file and reading the data
 		BufferedReader in;
@@ -23,10 +29,36 @@ public class Compressor {
 		try {
 			in = new BufferedReader(new FileReader(sourceFile));
 			data = in.readLine();
-		} catch (Exception e) {return;	}
+		} catch (Exception e) {return -1;	}
+		
+		// check if data has only English letters
+		for(int i=0; i<data.length(); i++)
+			if(!Character.isLetter(data.charAt(i)))
+				return -1;
+		
+		long n =  data.length();
+		
+		try {
+			out = new PrintWriter(new File("output.txt"));
+			out.print("");
+		} catch (FileNotFoundException e) {	}
+		
 		
 		// Using the Burrows-Wheeler transformation
 		data  = burrowsWheeler(data, bw);
+		data = moveToFront(data, mtf);
+		int L = arithmeticCoder(data, ac);
+		
+		double ret = Math.ceil(Math.log(n*BITS_PER_CHAR)/Math.log(2))/L;
+		
+		print("Compression ratio is " + ret, out);
+		
+		try {
+			in.close();
+		} catch (IOException e) {}
+		out.close();
+		
+		return ret;
 		
 	}
 	
@@ -46,11 +78,7 @@ public class Compressor {
 		PrintWriter out = null;
 		
 		if(flag)
-			try {
-				out = new PrintWriter(new File("output.txt"));
-				out.print("");
-			} catch (FileNotFoundException e) {	}
-		
+			out = Compressor.out;
 		
 		print("=============================================================\n", out);
 		print("Burrows-Wheeler\n\n", out);
@@ -99,8 +127,6 @@ public class Compressor {
 		
 		print("=============================================================\n\n", out);
 		
-		if(out != null)
-			out.close();
 		
 		return sb.toString();
 		
@@ -112,9 +138,7 @@ public class Compressor {
 		PrintWriter out = null;
 		
 		if(flag)
-			try {
-				out = new PrintWriter(new File("output.txt"));
-			} catch (FileNotFoundException e) {	}
+			out = Compressor.out;
 		
 
 		print("=============================================================\n", out);
@@ -160,12 +184,114 @@ public class Compressor {
 		print("\nThe result sequence is: "+sb.toString()+"\n\n", out);
 		
 		print("=============================================================\n\n", out);
-		
-		if(out != null)
-			out.close();
-		
+
 		return sb.toString();
 		
+	}
+	
+	
+	// Arithmetic coder
+	private static int arithmeticCoder(String data, boolean flag){
+		
+		class Data{
+			public String s = "";
+			public double p = 0;
+			public Data(String ss){s=ss;}
+		};
+	
+		PrintWriter out = null;
+		
+		if(flag)
+			out = Compressor.out;
+		
+
+		print("=============================================================\n", out);
+		print("Arithmetic Coder\n\n", out);
+		
+		print("Message: "+data+"\n\n", out);
+		
+		// Getting the values from the data String
+		String [] d = data.split(" ");
+		
+		Data P[] = new Data[26];
+		int n = d.length;
+		
+		for(int i=0; i<P.length; i++)
+			P[i] = new Data((i+1)+"");
+		
+		for(int i=0; i<d.length; i++)
+			P[Integer.parseInt(d[i])-1].p++;
+		
+		for(int i=0; i<P.length; i++)
+			P[i].p/=n;
+		
+		Arrays.sort(P,  (a, b) -> a.p<b.p?1:a.p==b.p?0:-1);
+		
+		for(Data dd:P)
+			if(dd.p != 0){
+				print("P("+dd.s+") = "+String.format("%.2f", dd.p)+"; ", out);
+			}
+		
+	
+		print("\n\n", out);
+		
+		
+		double lower=0, upper = 1;
+		for(String s:d){
+			double delta = upper-lower;
+			double sum = 0;
+			int i;
+			for(i=0; i<P.length; i++){
+				if(P[i].s.equals(s))
+					break;
+				sum+=P[i].p;
+			}
+			
+			print(s+":\n", out);
+			print("I = ("+String.format("%.10f", lower)+", "+String.format("%.10f", upper)+")\n\n", out);
+				
+			lower += delta*sum;
+			upper = lower+delta*P[i].p;
+		}
+		
+		print("\nThe resulting interval is I = ("+String.format("%.15f", lower)+", "+String.format("%.15f", upper)+")\n", out);
+		
+		double val = (upper+lower)/2;
+		print("The selected valuse is: "+val+"\n",out);
+		
+		// Number of bits for the message
+		int k;
+		if(upper-lower == 0)
+			k=-1;
+		else
+			k = (int)((Math.log(1/(upper-lower))/Math.log(2))+1);
+		print("The number of bits for the message is: "+k+"\n\n", out);
+		
+		print("The result message (in binary form) is: " + doubleToBinary(val, k)+ "\n\n", out);
+		
+		print("=============================================================\n\n", out);
+		
+		
+		return k;
+				
+	}
+	
+	private static String doubleToBinary(double d, int k){
+		
+		StringBuilder sb = new StringBuilder("0.");
+		
+		for(int i=0; (k!=-1?i<k:true) && d!=0; i++){
+			double r = d * 2;   
+			if( r >= 1 ) {     
+				sb.append("1");     
+				d = r - 1;      
+			}else{             
+				sb.append("0");    
+				d = r;         
+			}
+		}
+		
+		return sb.toString();
 	}
 	
 	
